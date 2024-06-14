@@ -1,5 +1,9 @@
-from extensions import db
+from extensions import db, bcrypt
 from sqlalchemy import text, exc
+from flask_jwt_extended import create_access_token
+import pandas as pd
+import csv
+
 
 def create_user_tables():
     user_table_sql = text("""
@@ -35,10 +39,39 @@ def create_user_tables():
         )ENGINE=InnoDB; 
     """)
 
+    role_table_sql = text("""
+    CREATE TABLE IF NOT EXISTS roles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(80) UNIQUE NOT NULL,
+        description TEXT
+    )ENGINE=InnoDB; 
+    """)
+
+    user_roles_table_sql = text("""
+    CREATE TABLE IF NOT EXISTS user_roles (
+        user_id INT NOT NULL,
+        role_id INT NOT NULL,
+        PRIMARY KEY (user_id, role_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+    )ENGINE=InnoDB; 
+    """)
+
+    roles = ['admin', 'standard']
+    insert_role_sql = text("""
+         INSERT INTO roles (name) VALUES (:name) ON DUPLICATE KEY UPDATE name = name;
+    """)
+
     with db.engine.begin() as connection:
         connection.execute(user_table_sql)
         connection.execute(user_profile_table_sql)
         connection.execute(image_table_sql)
+        connection.execute(image_table_sql)
+        connection.execute(user_roles_table_sql)
+        # The transaction is committed here when the block exits
+        
+        for role_name in roles:
+            connection.execute(insert_role_sql, {'name': role_name})
 
 def initialize_database():
     """Create user tables if they don't exist before the first request."""
@@ -47,15 +80,29 @@ def initialize_database():
 
 ### CRUD USER ###
 #CREATE USER
-def create_user(username, password, email):
+def create_user(username, password, email, role_id):
     try:
+
+        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')  # Hash the password
+
         # Insert into users table
         user_sql = text("""
-        INSERT INTO users (username, password, email) VALUES (:username, :password, :email);
+        INSERT INTO users (username, password, email) 
+        VALUES (:username, :password, :email);
         """)
-        db.session.execute(user_sql, {'username': username, 'password': password, 'email': email})
-        # Fetch the last inserted user_id
-        user_id = db.session.execute(text('SELECT LAST_INSERT_ID();')).fetchone()[0] 
+        
+        # Execute the query
+        db.session.execute(user_sql, {'username': username, 'password': hashed_password, 'email': email})
+
+        # Fetch the ID of the last inserted row
+        user_id = db.session.execute(text('SELECT LAST_INSERT_ID();')).fetchone()[0]
+
+        assign_role_sql = text("""
+            INSERT INTO user_roles (user_id, role_id) VALUES (:user_id, :role_id);
+            """)
+            
+        db.session.execute(assign_role_sql,{'user_id': user_id, 'role_id': role_id})
+        
         db.session.commit()
         return user_id
     
@@ -174,6 +221,8 @@ def get_users():
     users = [dict(row) for row in result]
     return users
 
+
+
 def get_user_details():
     sql = text("""
     SELECT 
@@ -262,3 +311,24 @@ def authenticate_user_jwt(username, password):
         return access_token  # Return the JWT token
     else:
         return None  # Authentication failed
+    
+
+
+
+def csv_to_json(file_path):
+    # Read CSV file into DataFrame
+    df = pd.read_csv(file_path)
+    
+    # Convert DataFrame to JSON
+    json_data = df.to_json(orient='records', indent=4)
+    
+    return json_data
+
+def csv_to_dict_list(file_path):
+    with open(file_path, mode='r') as file:
+        csv_reader = csv.DictReader(file)
+        data = {}
+        for row in csv_reader:
+            for column, value in row.items():
+                data.setdefault(column, []).append(value)
+    return data

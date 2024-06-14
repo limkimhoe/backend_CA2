@@ -1,10 +1,13 @@
 from flask import Flask, render_template, request, jsonify
-from models import initialize_database, create_user, create_user_profile, update_user_profile, create_user_image, create_user_with_details, get_users, get_user_details, get_user_by_id, get_user_details_by_id, update_user_profile, delete_user_by_id
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from models import initialize_database, create_user, create_user_profile, update_user_profile, create_user_image, create_user_with_details, get_users, get_user_details, get_user_by_id, get_user_details_by_id, update_user_profile, delete_user_by_id, authenticate_user, authenticate_user_jwt, csv_to_dict_list, csv_to_json
 from config import Config, DevelopmentConfig, ProductionConfig
 from flask_cors import CORS
-import os
+import os, json
 from extensions import db
 from werkzeug.utils import secure_filename
+
+jwt = JWTManager()
 
 app = Flask(__name__)
 CORS(app)
@@ -17,6 +20,7 @@ app.config.from_object(f'config.{config_class}')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db.init_app(app)
+jwt.init_app(app)
 
 with app.app_context():
     initialize_database()
@@ -28,8 +32,9 @@ def register_user():
     username = data.get('username')
     password = data.get('password')  
     email = data.get('email')
+    role_id = data.get('role_id')
     try:
-        user_id = create_user(username, password, email)
+        user_id = create_user(username, password, email, role_id)
         return jsonify({"message": "User created successfully", "user_id": user_id}), 201
     except Exception as e:
         # Handle errors and conflicts, such as a duplicate username
@@ -135,6 +140,56 @@ def delete_user(user_id):
         return jsonify({"message": "User ID " + str(user['user_id']) + " has been deleted successfully"}), 201
     else:
         return jsonify({"error": "User not found"}), 404
+
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    
+    user_id = authenticate_user(username, password)
+    
+    if user_id:
+        # For simplicity, returning a message; in a real app, consider returning a token
+        return jsonify({'message': 'Login successful', 'user_id': user_id}), 200
+    else:
+        return jsonify({'message': 'Invalid username or password'}), 401
+
+
+@app.route('/login-jwt', methods=['POST'])
+def loginjwt():
+    username = request.json.get('username', None)
+    password = request.json.get('password', None)
+    
+    # Attempt to authenticate the user
+    access_token = authenticate_user_jwt(username, password)
+    
+    if access_token:
+        # If authentication is successful, return the access token
+        return jsonify(access_token=access_token), 200
+    else:
+        # If authentication fails, return an error message
+        return jsonify({"msg": "Bad username or password"}), 401
+
+@app.route('/protected', methods=['GET'])
+@jwt_required()
+def protected():
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as=current_user), 200
+
+@app.route('/get_csv', methods=['GET'])
+def get_csv():
+    file_path = "static/data/hdb_resale_sample_raw.csv"
+    data = csv_to_dict_list(file_path)
+    return json.dumps(data, indent=4)
+
+@app.route('/get_csv_pandas', methods=['GET'])
+def get_csv_pandas():
+    file_path = "static/data/hdb_resale_sample_raw.csv"
+    data = csv_to_json(file_path)
+    return data
+
 
 if __name__ == "__main__":
     app.run(debug=True, host="127.0.0.1")
