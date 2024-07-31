@@ -107,6 +107,11 @@ div canvas {
 	text-align: center;
 }
 
+.python-image-container{
+    width: 300px;
+    height:300px;
+    margin: 20px auto;
+}
 
 /* For Chrome or Safari */
 progress::-webkit-progress-bar {

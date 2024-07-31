@@ -1,11 +1,12 @@
 from flask import Flask, render_template, request, jsonify
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
-from models import initialize_database, create_user, create_user_profile, update_user_profile, create_user_image, create_user_with_details, get_users, get_user_details, get_user_by_id, get_user_details_by_id, update_user_profile, delete_user_by_id, authenticate_user, authenticate_user_jwt, csv_to_dict_list, csv_to_json
+from models import initialize_database, create_user, create_user_profile, update_user_profile, create_user_image, create_user_with_details, get_users, get_user_details, get_user_by_id, get_user_details_by_id, update_user_profile, delete_user_by_id, authenticate_user, authenticate_user_jwt
 from config import Config, DevelopmentConfig, ProductionConfig
 from flask_cors import CORS
 import os, json
 from extensions import db
 from werkzeug.utils import secure_filename
+from auth import admin_required
 
 jwt = JWTManager()
 
@@ -16,6 +17,7 @@ CORS(app)
 config_class = os.getenv('FLASK_CONFIG', 'DevelopmentConfig')
 app.config.from_object(f'config.{config_class}')
 
+
 # Ensure the upload folder exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
@@ -24,6 +26,7 @@ jwt.init_app(app)
 
 with app.app_context():
     initialize_database()
+
 
 #REGISTER OR CREATE AN USER
 @app.route('/register', methods=['POST'])
@@ -178,18 +181,12 @@ def protected():
     current_user = get_jwt_identity()
     return jsonify(logged_in_as=current_user), 200
 
-@app.route('/get_csv', methods=['GET'])
-def get_csv():
-    file_path = "static/data/hdb_resale_sample_raw.csv"
-    data = csv_to_dict_list(file_path)
-    return json.dumps(data, indent=4)
-
-@app.route('/get_csv_pandas', methods=['GET'])
-def get_csv_pandas():
-    file_path = "static/data/hdb_resale_sample_raw.csv"
-    data = csv_to_json(file_path)
-    return data
-
+@app.route('/protected_admin', methods=['GET'])
+@jwt_required()
+@admin_required
+def protected_admin():
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as=current_user), 200
 
 if __name__ == "__main__":
     app.run(debug=True, host="127.0.0.1")
